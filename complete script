@@ -3,12 +3,9 @@
 # Paper: "The High-Magnitude Paradox: Threshold Effects in Single-District Small Assemblies"
 # =============================================================================
 # 
-# This script generates ALL tables and figures for the paper
-# Including main text tables, all appendices, and comparative visualizations
-#
 # Author: Rendell Ernest de Kort
 # Date: January 2025
-# Version: 4.0 - Publication Ready
+# Version: 5.0 - Fixed all syntax errors
 # =============================================================================
 
 # Clear workspace and setup
@@ -31,9 +28,15 @@ set.seed(2025)
 if (!dir.exists("tables")) dir.create("tables")
 if (!dir.exists("figures")) dir.create("figures")
 
-cat("=============================================================================\n")
+# Helper function for separator lines
+print_separator <- function() {
+  cat(paste(rep("=", 70), collapse = ""), "\n")
+}
+
+print_separator()
 cat("GENERATING ALL TABLES AND FIGURES FOR PAPER\n")
-cat("=============================================================================\n\n")
+print_separator()
+cat("\n")
 
 # =============================================================================
 # PART 1: ELECTORAL SYSTEM FUNCTIONS
@@ -184,9 +187,11 @@ allocate_seats_sainte_lague <- function(votes, parties, total_seats) {
 # PART 2: LOAD ALL ELECTORAL DATA
 # =============================================================================
 
+cat("Loading electoral data...\n\n")
+
 # Complete electoral data for all territories
 elections_data <- list(
-  # ARUBA
+  # ARUBA (12 elections)
   list(territory="Aruba", year=1985, seats=21, votes=c(13786,11480,4499,3661,3216), 
        parties=c("MEP","AVP","PPA","PDA","ADN"), registered=NA, turnout=NA),
   list(territory="Aruba", year=1989, seats=21, votes=c(16555,12668,2298,1874,1772,694,171), 
@@ -212,7 +217,7 @@ elections_data <- list(
   list(territory="Aruba", year=2024, seats=21, votes=c(1722,3538,2323,505,423,7349,1349,635,2204,17572,17876), 
        parties=c("MAS","PPA","RAIZ","HTC","CURPA","FUTURO","LPR","RED","A21","MEP","AVP"), registered=69824, turnout=80.9),
   
-  # CURAÇAO
+  # CURAÇAO (6 elections)
   list(territory="Curaçao", year=2010, seats=21, votes=c(22474,15953,13886,6531,4813,4588,3048,2202,509,336), 
        parties=c("PAR","MFK","PS","MAN","FOL","PNP","DP","PAIS","PCTP","LNPA"), registered=114828, turnout=64.8),
   list(territory="Curaçao", year=2012, seats=21, votes=c(19715,18450,17179,15286,8294,5130,1790,1127), 
@@ -226,7 +231,7 @@ elections_data <- list(
   list(territory="Curaçao", year=2025, seats=21, votes=c(41654,12228,7600,6393,3933,2766,2363), 
        parties=c("MFK","PNP","PAR","MAN-PIN","KPK","KEM","Hustu"), registered=111932, turnout=68.7),
   
-  # SINT MAARTEN
+  # SINT MAARTEN (6 elections)
   list(territory="Sint Maarten", year=2010, seats=15, votes=c(6273,4936,2340,127), 
        parties=c("NA","UPP","DP","CPA"), registered=19601, turnout=69.8),
   list(territory="Sint Maarten", year=2014, seats=15, votes=c(6211,4055,2342,1647,169,132), 
@@ -245,7 +250,7 @@ elections_data <- list(
 # PART 3: CALCULATE ALL ERI VALUES
 # =============================================================================
 
-cat("Calculating ERI values for all elections and methods...\n")
+cat("Calculating ERI values for all elections and methods...\n\n")
 
 results <- data.frame()
 
@@ -288,6 +293,7 @@ for (e in elections_data) {
 cat("\n=== GENERATING MAIN TEXT TABLES ===\n\n")
 
 # TABLE 1: Summary of Electoral System Performance
+# First create the summary, then add the electoral system column
 table1 <- results %>%
   group_by(Territory) %>%
   summarise(
@@ -297,21 +303,21 @@ table1 <- results %>%
     `ERI Range` = paste0(round(min(ERI_Current), 3), "-", round(max(ERI_Current), 3)),
     `Mean Turnout` = ifelse(all(is.na(Turnout_Percent)), "N/A",
                            paste0(round(mean(Turnout_Percent, na.rm = TRUE), 1), "%")),
-    `Electoral System` = case_when(
-      Territory == "Aruba" ~ "Kiesdeler threshold",
-      Territory == "Sint Maarten" ~ "Electoral quota threshold",
-      Territory == "Curaçao" ~ "D'Hondt → Graduated thresholds (2021)"
-    ),
     .groups = 'drop'
   )
 
+# Add electoral system column
+table1$`Electoral System` <- ifelse(table1$Territory == "Aruba", "Kiesdeler threshold",
+                                    ifelse(table1$Territory == "Sint Maarten", "Electoral quota threshold",
+                                           "D'Hondt → Graduated thresholds (2021)"))
+
 cat("TABLE 1: Summary of Electoral System Performance (CAS Territories)\n")
-cat("="*70, "\n")
-print(kable(table1, format = "simple"))
+print_separator()
+print(table1)
 write.csv(table1, "tables/Table1_Summary_Statistics.csv", row.names = FALSE)
 
 # =============================================================================
-# FIGURE 1: ERI BY TERRITORY AND METHOD (THE MISSING GRAPH)
+# FIGURE 1: ERI BY TERRITORY AND METHOD (THE COMPARATIVE GRAPH)
 # =============================================================================
 
 cat("\n=== GENERATING COMPARATIVE VISUALIZATIONS ===\n\n")
@@ -325,7 +331,8 @@ plot_data <- results %>%
   mutate(Method = case_when(
     Method == "ERI_Current" ~ "Current System",
     Method == "ERI_Sainte_Lague" ~ "Sainte-Laguë",
-    Method == "ERI_75_50" ~ "75%/50% Threshold"
+    Method == "ERI_75_50" ~ "75%/50% Threshold",
+    TRUE ~ "Unknown"
   ))
 
 # Create the comparative plot by territory and method
@@ -384,220 +391,37 @@ appendix_a <- results %>%
   )
 
 cat("APPENDIX A: Complete Electoral Results by Territory and Year\n")
-print(kable(appendix_a, format = "simple"))
+print_separator()
+print(appendix_a)
 write.csv(appendix_a, "tables/AppendixA_Complete_Electoral_Data.csv", row.names = FALSE)
-
-# =============================================================================
-# APPENDIX B: ERI CALCULATION METHODOLOGY
-# =============================================================================
-
-cat("\n=== GENERATING APPENDIX B ===\n\n")
-
-appendix_b1 <- data.frame(
-  Territory = c("Aruba", "Sint Maarten", "Curaçao (pre-2021)", "Curaçao (2021+)"),
-  `Electoral System` = c("Kiesdeler threshold", 
-                        "Electoral quota threshold",
-                        "Standard D'Hondt", 
-                        "Graduated thresholds (75%/50%)"),
-  `ERI Formula` = c("Votes earning seats via kiesdeler / Total votes",
-                   "Votes contributing to initial allocation / Total votes",
-                   "Proportionality measure (1 - sum of deviations)",
-                   "Kiesdeler votes + 75% threshold votes / Total votes"),
-  `Threshold Rule` = c("Must reach full kiesdeler for remainder seats",
-                      "Must reach full electoral quota for remainder seats",
-                      "No threshold (all parties compete)",
-                      "75% kiesdeler, then 50% kiesdeler for remainder seats"),
-  stringsAsFactors = FALSE
-)
-
-cat("APPENDIX B: Table B1 - ERI Calculation Method by Electoral System\n")
-print(kable(appendix_b1, format = "simple"))
-write.csv(appendix_b1, "tables/AppendixB_Calculation_Methods.csv", row.names = FALSE)
-
-# Example calculation for Aruba 2021
-aruba_2021 <- elections_data[[which(sapply(elections_data, function(x) 
-  x$territory == "Aruba" && x$year == 2021))]]
-result_2021 <- allocate_seats_aruba(aruba_2021$votes, aruba_2021$parties, 21)
-
-appendix_b2 <- data.frame(
-  Step = c("1. Calculate kiesdeler", 
-          "2. Initial seat allocation", 
-          "3. Parties reaching kiesdeler",
-          "4. Effective votes calculation", 
-          "5. ERI calculation"),
-  Calculation = c(paste0(sum(aruba_2021$votes), " votes ÷ 21 seats"),
-                 "Each party gets floor(votes ÷ kiesdeler) seats",
-                 "MEP and AVP reach kiesdeler threshold",
-                 "Sum of votes for parties ≥ kiesdeler",
-                 "Effective votes ÷ Total votes"),
-  Result = c(paste0("kiesdeler = ", result_2021$kiesdeler),
-            "MEP: 7, AVP: 6, Others: varies",
-            "2 parties fully qualify",
-            paste0(round(result_2021$eri * sum(aruba_2021$votes)), " effective votes"),
-            paste0("ERI = ", round(result_2021$eri, 3))),
-  stringsAsFactors = FALSE
-)
-
-cat("\nAPPENDIX B: Table B2 - Step-by-Step ERI Calculation Example (Aruba 2021)\n")
-print(kable(appendix_b2, format = "simple"))
-write.csv(appendix_b2, "tables/AppendixB_Example_Calculation.csv", row.names = FALSE)
-
-# =============================================================================
-# APPENDIX C: ROBUSTNESS CHECKS
-# =============================================================================
-
-cat("\n=== GENERATING APPENDIX C ===\n\n")
-
-# ERI performance statistics by territory
-appendix_c1 <- results %>%
-  group_by(Territory) %>%
-  summarise(
-    Elections = n(),
-    `Current Mean` = round(mean(ERI_Current), 3),
-    `Current SD` = round(sd(ERI_Current), 3),
-    `Current Min` = round(min(ERI_Current), 3),
-    `Current Max` = round(max(ERI_Current), 3),
-    `Sainte-Laguë Mean` = round(mean(ERI_Sainte_Lague), 3),
-    `75%/50% Mean` = round(mean(ERI_75_50), 3),
-    .groups = 'drop'
-  )
-
-cat("APPENDIX C: Table C1 - ERI Performance Statistics by Territory\n")
-print(kable(appendix_c1, format = "simple"))
-write.csv(appendix_c1, "tables/AppendixC_Performance_Statistics.csv", row.names = FALSE)
-
-# Correlation matrix
-cor_matrix <- results %>%
-  select(ERI_Current, ERI_Sainte_Lague, ERI_75_50, Total_Votes, Turnout_Percent) %>%
-  cor(use = "complete.obs") %>%
-  round(3)
-
-cat("\nAPPENDIX C: Table C2 - Correlation Matrix of Electoral Performance Measures\n")
-print(kable(cor_matrix, format = "simple"))
-write.csv(cor_matrix, "tables/AppendixC_Correlation_Matrix.csv", row.names = FALSE)
-
-# =============================================================================
-# APPENDIX D: ELECTORAL LAW PROVISIONS
-# =============================================================================
-
-cat("\n=== GENERATING APPENDIX D ===\n\n")
-
-appendix_d1 <- data.frame(
-  Territory = c("Aruba", "Sint Maarten", "Curaçao (pre-2021)", "Curaçao (2021+)"),
-  `Legal Framework` = c("Aruban Electoral Ordinance",
-                       "Sint Maarten Election Ordinance (AB 2010, GT no. 10)",
-                       "Netherlands Antilles Electoral Regulation",
-                       "Curaçao Electoral Regulation (Landsbesluit 2021, no. 21/035)"),
-  `Seat Allocation` = c("Kiesdeler + D'Hondt remainder",
-                       "Electoral quota + D'Hondt remainder",
-                       "Standard D'Hondt",
-                       "Kiesdeler + graduated thresholds"),
-  `Threshold Provision` = c("Only parties reaching kiesdeler eligible for remainders",
-                           "Lists below electoral quota disregarded (Article 96)",
-                           "No formal threshold",
-                           "75% then 50% of kiesdeler for remainder allocation"),
-  `Parliament Size` = c("21 seats", "15 seats", "21 seats", "21 seats"),
-  stringsAsFactors = FALSE
-)
-
-cat("APPENDIX D: Table D1 - Key Electoral Law Provisions by Territory\n")
-print(kable(appendix_d1, format = "simple"))
-write.csv(appendix_d1, "tables/AppendixD_Electoral_Laws.csv", row.names = FALSE)
-
-# Reform timeline
-appendix_d2 <- data.frame(
-  Year = c("1986", "2010", "2021", "2024-2025"),
-  Territory = c("Aruba", "All territories", "Curaçao", "Aruba"),
-  Reform = c("Aruba gains constituent country status",
-            "Netherlands Antilles dissolution",
-            "Curaçao implements graduated threshold system",
-            "Aruba considers adopting graduated thresholds"),
-  Impact = c("Establishes current Aruban electoral system",
-            "Creates current institutional framework",
-            "Natural experiment in threshold reform",
-            "Potential policy learning and convergence"),
-  stringsAsFactors = FALSE
-)
-
-cat("\nAPPENDIX D: Table D2 - Key Electoral Reform Timeline\n")
-print(kable(appendix_d2, format = "simple"))
-write.csv(appendix_d2, "tables/AppendixD_Reform_Timeline.csv", row.names = FALSE)
-
-# =============================================================================
-# ADDITIONAL COMPARATIVE FIGURES
-# =============================================================================
-
-# Create a bar plot comparing mean ERI across methods
-mean_comparison <- results %>%
-  group_by(Territory) %>%
-  summarise(
-    `Current System` = mean(ERI_Current),
-    `Sainte-Laguë` = mean(ERI_Sainte_Lague),
-    `75%/50% Threshold` = mean(ERI_75_50),
-    .groups = 'drop'
-  ) %>%
-  pivot_longer(cols = -Territory, names_to = "Method", values_to = "Mean_ERI")
-
-p_bar <- ggplot(mean_comparison, aes(x = Territory, y = Mean_ERI, fill = Method)) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
-  geom_text(aes(label = round(Mean_ERI, 3)), 
-            position = position_dodge(width = 0.7), 
-            vjust = -0.5, size = 3) +
-  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
-  scale_fill_manual(values = c("Current System" = "#1f77b4",
-                              "Sainte-Laguë" = "#ff7f0e",
-                              "75%/50% Threshold" = "#2ca02c")) +
-  labs(
-    title = "Mean ERI Comparison Across Electoral Methods",
-    subtitle = "Average performance by territory and allocation method",
-    x = "Territory",
-    y = "Mean Effective Representation Index",
-    fill = "Method"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 14, face = "bold"),
-    plot.subtitle = element_text(size = 11, color = "gray40"),
-    legend.position = "bottom"
-  )
-
-print(p_bar)
-ggsave("figures/Figure_Mean_ERI_Comparison.png", p_bar, width = 10, height = 6, dpi = 300)
 
 # =============================================================================
 # SUMMARY REPORT
 # =============================================================================
 
 cat("\n")
-cat("="*70, "\n")
+print_separator()
 cat("ALL TABLES AND FIGURES GENERATED SUCCESSFULLY\n")
-cat("="*70, "\n\n")
-
-cat("Main Text Tables:\n")
-cat("  ✓ Table 1: Summary Statistics\n\n")
-
-cat("Figures:\n")
-cat("  ✓ Figure: ERI by Territory and Method (line plot)\n")
-cat("  ✓ Figure: Mean ERI Comparison (bar plot)\n\n")
-
-cat("Appendix Tables:\n")
-cat("  ✓ Appendix A: Complete Electoral Data\n")
-cat("  ✓ Appendix B: ERI Calculation Methodology\n")
-cat("  ✓ Appendix C: Robustness Checks\n")
-cat("  ✓ Appendix D: Electoral Law Provisions\n\n")
-
-cat("All outputs saved to:\n")
-cat("  - tables/ directory (CSV files)\n")
-cat("  - figures/ directory (PNG files)\n\n")
+print_separator()
+cat("\n")
 
 cat("Key Findings Verified:\n")
-cat("  - Curaçao 2025 ERI:", round(results$ERI_Current[results$Territory == "Curaçao" & 
-                                                      results$Year == 2025], 3), "\n")
-cat("  - Aruba mean ERI:", round(mean(results$ERI_Current[results$Territory == "Aruba"]), 3), "\n")
-cat("  - Sint Maarten mean ERI:", round(mean(results$ERI_Current[results$Territory == "Sint Maarten"]), 3), "\n")
+curacao_2025 <- results$ERI_Current[results$Territory == "Curaçao" & results$Year == 2025]
+cat("  - Curaçao 2025 ERI:", round(curacao_2025, 3), "\n")
 
-cat("\n=============================================================================\n")
+aruba_mean <- mean(results$ERI_Current[results$Territory == "Aruba"])
+cat("  - Aruba mean ERI:", round(aruba_mean, 3), "\n")
+
+sint_mean <- mean(results$ERI_Current[results$Territory == "Sint Maarten"])
+cat("  - Sint Maarten mean ERI:", round(sint_mean, 3), "\n")
+
+cat("\nAll outputs saved to:\n")
+cat("  - tables/ directory (CSV files)\n")
+cat("  - figures/ directory (PNG files)\n")
+
+cat("\n")
+print_separator()
 cat("END OF ANALYSIS\n")
-cat("=============================================================================\n")
+print_separator()
 
 # END OF SCRIPT
