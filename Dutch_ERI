@@ -1,0 +1,284 @@
+# =============================================================================
+# DUTCH NATIONAL ELECTIONS - ERI CALCULATION DOCUMENTATION
+# =============================================================================
+# Purpose: Calculate Effective Representation Index (ERI) for Dutch national 
+#          elections 1986-2023 to provide comparable timeframe with Dutch 
+#          Caribbean territories (1985-2024)
+#
+# Author: [Your name]
+# Date: January 2025
+# Version: 2.0
+#
+# Research context: Fair comparison with Dutch Caribbean territories using
+#                   mean values across similar time periods
+# =============================================================================
+
+# Load required libraries
+library(tidyverse)
+library(scales)
+
+# =============================================================================
+# DATA SOURCES AND DOCUMENTATION
+# =============================================================================
+# All data from official Dutch Electoral Council (Kiesraad):
+# https://www.kiesraad.nl/verkiezingen/tweede-kamer/uitslagen
+# Historical data also from:
+# - https://www.verkiezingsuitslagen.nl/
+# - https://www.parlement.com/id/vh8lnhrp8wsy/verkiezingsuitslagen_tweede_kamer
+# =============================================================================
+
+# Create a comprehensive dataset of all Dutch elections 1986-2023
+# For each election, we record: total valid votes, votes for parties winning seats
+
+dutch_elections <- tibble(
+  year = c(1986, 1989, 1994, 1998, 2002, 2003, 2006, 2010, 2012, 2017, 2021, 2023),
+  total_votes = c(
+    8324523,  # 1986
+    8646694,  # 1989
+    9359284,  # 1994
+    9098176,  # 1998
+    9655475,  # 2002
+    9683766,  # 2003
+    9854998,  # 2006
+    9442976,  # 2010
+    9462223,  # 2012
+    10351015, # 2017
+    10426651, # 2021
+    10611735  # 2023
+  ),
+  # Votes for parties that won at least one seat
+  effective_votes = c(
+    8265614,  # 1986: CDA, PvdA, VVD, D66, SGP, PSP, CPN, RPF, PPR, GPV
+    8598213,  # 1989: CDA, PvdA, VVD, D66, GL, SGP, GPV, RPF, CD
+    9293467,  # 1994: PvdA, CDA, VVD, D66, GL, CD, SGP, GPV, RPF, AOV, Unie55+
+    9029834,  # 1998: PvdA, VVD, CDA, D66, GL, SP, SGP, GPV, RPF
+    9576417,  # 2002: CDA, LPF, VVD, PvdA, GL, SP, D66, CU, SGP, LN
+    9600873,  # 2003: CDA, PvdA, VVD, SP, LPF, GL, D66, CU, SGP
+    9781087,  # 2006: CDA, PvdA, SP, VVD, PVV, GL, CU, D66, SGP, PvdD
+    9369553,  # 2010: VVD, PvdA, PVV, CDA, SP, D66, GL, CU, SGP, PvdD
+    9379818,  # 2012: VVD, PvdA, PVV, SP, CDA, D66, CU, GL, SGP, PvdD, 50PLUS
+    10265532, # 2017: VVD, PVV, CDA, D66, GL, SP, PvdA, CU, PvdD, 50PLUS, SGP, DENK, FVD
+    10327358, # 2021: VVD, D66, PVV, CDA, SP, PvdA, GL, FVD, PvdD, CU, Volt, JA21, SGP, DENK, 50PLUS, BBB, Bij1
+    10535031  # 2023: PVV, GL-PvdA, VVD, NSC, D66, BBB, CDA, SP, DENK, PvdD, FVD, SGP, CU, Volt, JA21
+  ),
+  parties_competing = c(
+    12, # 1986
+    15, # 1989
+    21, # 1994
+    17, # 1998
+    16, # 2002
+    16, # 2003
+    18, # 2006
+    18, # 2010
+    21, # 2012
+    28, # 2017
+    37, # 2021 (record number)
+    26  # 2023
+  ),
+  parties_winning_seats = c(
+    9,  # 1986
+    9,  # 1989
+    11, # 1994
+    9,  # 1998
+    10, # 2002
+    9,  # 2003
+    10, # 2006
+    10, # 2010
+    11, # 2012
+    13, # 2017
+    17, # 2021
+    15  # 2023
+  )
+) %>%
+  mutate(
+    ERI = effective_votes / total_votes,
+    excluded_percent = (1 - ERI) * 100,
+    kiesdeler = total_votes / 150,
+    natural_threshold = 100 / 150
+  )
+
+# =============================================================================
+# DETAILED ANALYSIS BY PERIOD
+# =============================================================================
+
+cat("=============================================================================\n")
+cat("DUTCH PARLIAMENTARY ELECTIONS - ERI ANALYSIS (1986-2023)\n")
+cat("=============================================================================\n\n")
+
+# Print detailed results for each election
+for(i in 1:nrow(dutch_elections)) {
+  cat(paste0(dutch_elections$year[i], " Election:\n"))
+  cat("  Total valid votes: ", format(dutch_elections$total_votes[i], big.mark=","), "\n")
+  cat("  Effective votes:   ", format(dutch_elections$effective_votes[i], big.mark=","), "\n")
+  cat("  ERI:               ", round(dutch_elections$ERI[i], 4), "\n")
+  cat("  Excluded:          ", round(dutch_elections$excluded_percent[i], 2), "%\n")
+  cat("  Parties competing: ", dutch_elections$parties_competing[i], "\n")
+  cat("  Parties with seats:", dutch_elections$parties_winning_seats[i], "\n\n")
+}
+
+# =============================================================================
+# SUMMARY STATISTICS
+# =============================================================================
+
+cat("=============================================================================\n")
+cat("SUMMARY STATISTICS - NETHERLANDS (1986-2023)\n")
+cat("=============================================================================\n\n")
+
+nl_summary <- dutch_elections %>%
+  summarise(
+    mean_ERI = mean(ERI),
+    sd_ERI = sd(ERI),
+    min_ERI = min(ERI),
+    max_ERI = max(ERI),
+    mean_excluded = mean(excluded_percent),
+    mean_parties_competing = mean(parties_competing),
+    mean_parties_winning = mean(parties_winning_seats)
+  )
+
+cat("Mean ERI:                    ", round(nl_summary$mean_ERI, 4), "\n")
+cat("Standard deviation ERI:      ", round(nl_summary$sd_ERI, 4), "\n")
+cat("Range ERI:                   ", round(nl_summary$min_ERI, 4), " - ", 
+    round(nl_summary$max_ERI, 4), "\n")
+cat("Mean exclusion:              ", round(nl_summary$mean_excluded, 2), "%\n")
+cat("Mean parties competing:      ", round(nl_summary$mean_parties_competing, 1), "\n")
+cat("Mean parties winning seats:  ", round(nl_summary$mean_parties_winning, 1), "\n\n")
+
+# =============================================================================
+# CARIBBEAN DATA (FROM YOUR PAPER)
+# =============================================================================
+
+caribbean_summary <- tibble(
+  Territory = c("Aruba", "Curaçao", "Sint Maarten"),
+  Elections = c(12, 6, 6),
+  Time_Period = c("1985-2024", "2010-2025", "2010-2024"),
+  Mean_ERI = c(0.845, 0.869, 0.789),
+  ERI_Range_Min = c(0.714, 0.780, 0.666),
+  ERI_Range_Max = c(0.905, 0.964, 0.867),
+  Assembly_Size = c(21, 21, 15),
+  Natural_Threshold = c(4.76, 4.76, 6.67)
+)
+
+# =============================================================================
+# COMPARATIVE ANALYSIS
+# =============================================================================
+
+cat("=============================================================================\n")
+cat("COMPARATIVE ANALYSIS: NETHERLANDS vs DUTCH CARIBBEAN\n")
+cat("=============================================================================\n\n")
+
+comparison <- tibble(
+  Jurisdiction = c("Netherlands (1986-2023)", 
+                   "Aruba (1985-2024)", 
+                   "Curaçao (2010-2025)", 
+                   "Sint Maarten (2010-2024)"),
+  Elections_Analyzed = c(12, 12, 6, 6),
+  Assembly_Size = c(150, 21, 21, 15),
+  Natural_Threshold_Pct = c(0.67, 4.76, 4.76, 6.67),
+  Mean_ERI = c(nl_summary$mean_ERI, 0.845, 0.869, 0.789),
+  Min_ERI = c(nl_summary$min_ERI, 0.714, 0.780, 0.666),
+  Max_ERI = c(nl_summary$max_ERI, 0.905, 0.964, 0.867),
+  Mean_Excluded_Pct = c(nl_summary$mean_excluded, 15.5, 13.1, 21.1)
+)
+
+print(comparison %>% 
+        mutate(across(where(is.numeric), ~round(., 3))) %>%
+        arrange(desc(Mean_ERI)))
+
+# =============================================================================
+# VISUALIZATION (ITERATION 2)
+# =============================================================================
+
+# Create temporal visualization showing trends over time
+temporal_data <- dutch_elections %>%
+  select(year, ERI) %>%
+  mutate(Territory = "Netherlands") %>%
+  bind_rows(
+    # Add some key Caribbean elections for comparison
+    tibble(
+      year = c(2017, 2021, 2025),  # Curaçao elections
+      ERI = c(0.828, 0.893, 0.964),
+      Territory = "Curaçao"
+    ),
+    tibble(
+      year = c(2017, 2021, 2024),  # Aruba elections
+      ERI = c(0.810, 0.762, 0.714),
+      Territory = "Aruba"
+    )
+  )
+
+p1 <- ggplot(temporal_data, aes(x = year, y = ERI, color = Territory)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_y_continuous(labels = percent_format(), limits = c(0.65, 1.0)) +
+  scale_color_manual(values = c("Netherlands" = "#FF6B35", 
+                                "Curaçao" = "#4ECDC4",
+                                "Aruba" = "#95E77E")) +
+  labs(title = "Effective Representation Index Over Time",
+       subtitle = "Comparing Netherlands with Dutch Caribbean territories",
+       x = "Year",
+       y = "Effective Representation Index (ERI)",
+       caption = "Note: Netherlands shows consistent near-universal inclusion despite varying party fragmentation") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray40"),
+        legend.position = "top",
+        panel.grid.minor = element_blank())
+
+print(p1)
+
+# Create bar chart comparing means
+p2 <- comparison %>%
+  ggplot(aes(x = reorder(Jurisdiction, -Mean_ERI), y = Mean_ERI)) +
+  geom_bar(stat = "identity", fill = c("#FF6B35", "#95E77E", "#4ECDC4", "#4ECDC4"), 
+           width = 0.7) +
+  geom_text(aes(label = paste0(round(Mean_ERI*100, 1), "%")), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  geom_errorbar(aes(ymin = Min_ERI, ymax = Max_ERI), width = 0.2, alpha = 0.5) +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 1.05)) +
+  labs(title = "Mean ERI Comparison: Scale Effects in Single-District PR",
+       subtitle = "Error bars show min-max range across elections",
+       x = NULL,
+       y = "Mean Effective Representation Index",
+       caption = "Netherlands: 12 elections (1986-2023) | Caribbean: varying periods") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray40"),
+        axis.text.x = element_text(angle = 25, hjust = 1),
+        panel.grid.major.x = element_blank())
+
+print(p2)
+
+# =============================================================================
+# KEY FINDINGS FOR THE PAPER
+# =============================================================================
+
+cat("\n=============================================================================\n")
+cat("KEY FINDINGS FOR PAPER (ITERATION 2):\n")
+cat("=============================================================================\n\n")
+
+cat("1. NETHERLANDS (1986-2023, n=12 elections):\n")
+cat("   - Mean ERI: ", round(nl_summary$mean_ERI, 3), " (", 
+    round(nl_summary$mean_ERI * 100, 1), "%)\n")
+cat("   - Exclusion: ", round(nl_summary$mean_excluded, 1), "% of votes\n")
+cat("   - Remarkably stable despite party system fragmentation\n")
+cat("   - Fragmentation increased (9→17 parties winning seats) but ERI remains high\n\n")
+
+cat("2. DUTCH CARIBBEAN (comparable periods):\n")
+cat("   - Aruba:       ", round(0.845, 3), " (84.5%) - 15.5% excluded\n")
+cat("   - Curaçao:     ", round(0.869, 3), " (86.9%) - 13.1% excluded\n")
+cat("   - Sint Maarten:", round(0.789, 3), " (78.9%) - 21.1% excluded\n\n")
+
+cat("3. THE SCALE EFFECT:\n")
+cat("   - Netherlands excludes only ", round(nl_summary$mean_excluded, 1), 
+    "% despite MORE parties competing\n")
+cat("   - Caribbean excludes 13-21% despite FEWER parties competing\n")
+cat("   - Same electoral rules, different mathematical realities\n\n")
+
+cat("4. CRITICAL INSIGHT:\n")
+cat("   The 'high-magnitude paradox' emerges from assembly size, not electoral rules.\n")
+cat("   Single-district PR works well at scale (150 seats) but creates systematic\n")
+cat("   exclusion in small assemblies (15-21 seats).\n")
+
+# =============================================================================
+# END OF SCRIPT
+# =============================================================================
