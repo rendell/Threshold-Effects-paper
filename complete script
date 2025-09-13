@@ -302,7 +302,7 @@ table1 <- results %>%
     `Mean ERI` = round(mean(ERI_Current), 3),
     `ERI Range` = paste0(round(min(ERI_Current), 3), "-", round(max(ERI_Current), 3)),
     `Mean Turnout` = ifelse(all(is.na(Turnout_Percent)), "N/A",
-                           paste0(round(mean(Turnout_Percent, na.rm = TRUE), 1), "%")),
+                            paste0(round(mean(Turnout_Percent, na.rm = TRUE), 1), "%")),
     .groups = 'drop'
   )
 
@@ -317,11 +317,12 @@ print(table1)
 write.csv(table1, "tables/Table1_Summary_Statistics.csv", row.names = FALSE)
 
 # =============================================================================
-# FIGURE 1: ERI BY TERRITORY AND METHOD (THE COMPARATIVE GRAPH)
+# FIGURES: COMPARATIVE VISUALIZATIONS
 # =============================================================================
 
 cat("\n=== GENERATING COMPARATIVE VISUALIZATIONS ===\n\n")
 
+# FIGURE 1: ERI BY TERRITORY AND METHOD (HORIZONTAL LAYOUT)
 # Prepare data for the comparison plot
 plot_data <- results %>%
   select(Territory, Year, ERI_Current, ERI_Sainte_Lague, ERI_75_50) %>%
@@ -335,17 +336,17 @@ plot_data <- results %>%
     TRUE ~ "Unknown"
   ))
 
-# Create the comparative plot by territory and method
+# Create the comparative plot by territory and method (HORIZONTAL)
 p_comparison <- ggplot(plot_data, aes(x = Year, y = ERI, color = Method, linetype = Method)) +
   geom_line(linewidth = 1.2) +
   geom_point(size = 2) +
-  facet_wrap(~Territory, ncol = 1, scales = "free_x") +
+  facet_wrap(~Territory, ncol = 3, scales = "free_x") +  # Changed to ncol = 3 for horizontal layout
   scale_color_manual(values = c("Current System" = "#1f77b4", 
-                               "Sainte-Laguë" = "#ff7f0e", 
-                               "75%/50% Threshold" = "#2ca02c")) +
+                                "Sainte-Laguë" = "#ff7f0e", 
+                                "75%/50% Threshold" = "#2ca02c")) +
   scale_linetype_manual(values = c("Current System" = "solid", 
-                                  "Sainte-Laguë" = "dashed", 
-                                  "75%/50% Threshold" = "dotted")) +
+                                   "Sainte-Laguë" = "dashed", 
+                                   "75%/50% Threshold" = "dotted")) +
   scale_y_continuous(limits = c(0.65, 1), labels = scales::percent) +
   labs(
     title = "Electoral System Comparison: ERI by Territory and Method",
@@ -365,8 +366,108 @@ p_comparison <- ggplot(plot_data, aes(x = Year, y = ERI, color = Method, linetyp
   )
 
 print(p_comparison)
-ggsave("figures/Figure_ERI_by_Territory_and_Method.png", p_comparison, 
-       width = 10, height = 12, dpi = 300)
+ggsave("figures/Figure1_ERI_by_Territory_and_Method.png", p_comparison, 
+       width = 14, height = 6, dpi = 300)  # Adjusted dimensions for horizontal layout
+
+# FIGURE 2: NETHERLANDS VS DUTCH CARIBBEAN COMPARISON
+# Add Dutch national elections data
+dutch_elections <- data.frame(
+  year = c(1986, 1989, 1994, 1998, 2002, 2003, 2006, 2010, 2012, 2017, 2021, 2023),
+  total_votes = c(8324523, 8646694, 9359284, 9098176, 9655475, 9683766, 
+                  9854998, 9442976, 9462223, 10351015, 10426651, 10611735),
+  effective_votes = c(8265614, 8598213, 9293467, 9029834, 9576417, 9600873,
+                      9781087, 9369553, 9379818, 10265532, 10327358, 10535031),
+  stringsAsFactors = FALSE
+)
+
+dutch_elections$ERI <- dutch_elections$effective_votes / dutch_elections$total_votes
+
+# Calculate mean ERI for each territory
+cas_summary <- results %>%
+  group_by(Territory) %>%
+  summarise(
+    Mean_ERI = mean(ERI_Current),
+    Min_ERI = min(ERI_Current),
+    Max_ERI = max(ERI_Current),
+    .groups = 'drop'
+  )
+
+# Add Netherlands summary
+nl_summary <- data.frame(
+  Territory = "Netherlands",
+  Mean_ERI = mean(dutch_elections$ERI),
+  Min_ERI = min(dutch_elections$ERI),
+  Max_ERI = max(dutch_elections$ERI),
+  stringsAsFactors = FALSE
+)
+
+comparison_summary <- rbind(nl_summary, cas_summary)
+
+# Create bar plot comparing Netherlands with Caribbean territories
+p_nl_comparison <- ggplot(comparison_summary, aes(x = reorder(Territory, -Mean_ERI), y = Mean_ERI)) +
+  geom_bar(stat = "identity", fill = c("#FF6B35", "#1f77b4", "#ff7f0e", "#2ca02c"), width = 0.7) +
+  geom_errorbar(aes(ymin = Min_ERI, ymax = Max_ERI), width = 0.2, alpha = 0.5) +
+  geom_text(aes(label = paste0(round(Mean_ERI * 100, 1), "%")), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1.05)) +
+  labs(
+    title = "The Scale Effect: Netherlands vs Dutch Caribbean",
+    subtitle = "Mean ERI comparison showing impact of assembly size on representation",
+    x = NULL,
+    y = "Mean Effective Representation Index",
+    caption = "Netherlands: 150 seats, single district | Caribbean: 15-21 seats, single district\nError bars show min-max range across elections"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    axis.text.x = element_text(size = 11),
+    panel.grid.major.x = element_blank()
+  )
+
+print(p_nl_comparison)
+ggsave("figures/Figure2_Netherlands_Caribbean_Comparison.png", p_nl_comparison, 
+       width = 10, height = 6, dpi = 300)
+
+# Create time series comparison
+dutch_time_data <- dutch_elections %>%
+  select(year, ERI) %>%
+  mutate(Territory = "Netherlands (150 seats)")
+
+caribbean_time_data <- results %>%
+  group_by(Year) %>%
+  summarise(ERI = mean(ERI_Current), .groups = 'drop') %>%
+  rename(year = Year) %>%
+  mutate(Territory = "Dutch Caribbean (15-21 seats)")
+
+combined_time_data <- rbind(dutch_time_data, caribbean_time_data)
+
+p_time_comparison <- ggplot(combined_time_data, aes(x = year, y = ERI, color = Territory)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2.5) +
+  scale_y_continuous(labels = scales::percent, limits = c(0.65, 1)) +
+  scale_color_manual(values = c("Netherlands (150 seats)" = "#FF6B35",
+                                "Dutch Caribbean (15-21 seats)" = "#4ECDC4")) +
+  labs(
+    title = "ERI Over Time: Scale Effects in Single-District PR",
+    subtitle = "Same electoral system, different assembly sizes, different outcomes",
+    x = "Year",
+    y = "Effective Representation Index (ERI)",
+    caption = paste0("Netherlands mean: ", round(mean(dutch_elections$ERI) * 100, 1), "%",
+                     " | Caribbean mean: ", round(mean(results$ERI_Current) * 100, 1), "%")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    legend.position = "top",
+    legend.title = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_time_comparison)
+ggsave("figures/Figure3_Time_Series_Comparison.png", p_time_comparison, 
+       width = 10, height = 6, dpi = 300)
 
 # =============================================================================
 # APPENDIX A: COMPLETE ELECTORAL DATA
@@ -381,7 +482,7 @@ appendix_a <- results %>%
     Registered_Voters = ifelse(is.na(Registered_Voters), "-", 
                                format(Registered_Voters, big.mark = ",")),
     Turnout_Percent = ifelse(is.na(Turnout_Percent), "-", 
-                            paste0(round(Turnout_Percent, 1), "%")),
+                             paste0(round(Turnout_Percent, 1), "%")),
     across(starts_with("ERI"), ~round(., 3))
   ) %>%
   rename(
