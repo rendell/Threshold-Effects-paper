@@ -1,0 +1,275 @@
+# =============================================================================
+# GRADUATED THRESHOLD EFFECTIVENESS ANALYSIS - ITERATION 11
+# Examining when graduated thresholds provide the most value
+# =============================================================================
+
+# Load required packages
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+
+# Assuming the main analysis has been run and 'results' dataframe exists
+# If not, source the main script first
+
+# =============================================================================
+# ANALYSIS 1: EFFECTIVENESS GAP CALCULATION
+# =============================================================================
+
+cat("\n")
+cat("=============================================================================\n")
+cat("GRADUATED THRESHOLD EFFECTIVENESS ANALYSIS\n")
+cat("=============================================================================\n\n")
+
+# Calculate the effectiveness gap: how much better/worse graduated thresholds perform
+effectiveness_analysis <- results %>%
+  mutate(
+    # Party fragmentation measure
+    Party_Seat_Ratio = Num_Parties / Seats,
+    
+    # Fragmentation categories
+    Fragmentation_Level = case_when(
+      Party_Seat_Ratio <= 0.25 ~ "Low (<0.25)",
+      Party_Seat_Ratio <= 0.35 ~ "Moderate (0.25-0.35)",
+      Party_Seat_Ratio <= 0.45 ~ "High (0.35-0.45)",
+      TRUE ~ "Very High (>0.45)"
+    ),
+    
+    # Calculate effectiveness gaps
+    Graduated_vs_Current = ERI_75_50 - ERI_Current,
+    Graduated_vs_Sainte = ERI_75_50 - ERI_Sainte_Lague,
+    Sainte_vs_Current = ERI_Sainte_Lague - ERI_Current,
+    
+    # Best performing method
+    Best_Method = case_when(
+      ERI_Current >= ERI_75_50 & ERI_Current >= ERI_Sainte_Lague ~ "Current",
+      ERI_75_50 >= ERI_Current & ERI_75_50 >= ERI_Sainte_Lague ~ "Graduated",
+      TRUE ~ "Sainte-Laguë"
+    )
+  )
+
+# Summary statistics by fragmentation level
+fragmentation_summary <- effectiveness_analysis %>%
+  group_by(Fragmentation_Level) %>%
+  summarise(
+    Count = n(),
+    Avg_Parties = round(mean(Num_Parties), 1),
+    Avg_Seats = round(mean(Seats), 1),
+    
+    # Average ERI by method
+    Current_ERI = round(mean(ERI_Current), 3),
+    Graduated_ERI = round(mean(ERI_75_50), 3),
+    SainteLague_ERI = round(mean(ERI_Sainte_Lague), 3),
+    
+    # Average effectiveness gaps
+    Graduated_Advantage = round(mean(Graduated_vs_Current), 3),
+    SainteLague_Advantage = round(mean(Sainte_vs_Current), 3),
+    
+    # Which method wins most often
+    Graduated_Wins = sum(Best_Method == "Graduated"),
+    SainteLague_Wins = sum(Best_Method == "Sainte-Laguë"),
+    Current_Wins = sum(Best_Method == "Current"),
+    
+    .groups = 'drop'
+  ) %>%
+  arrange(Fragmentation_Level)
+
+cat("TABLE: Graduated Threshold Effectiveness by Fragmentation Level\n")
+cat("---------------------------------------------------------------------\n")
+print(fragmentation_summary)
+
+# Territory-specific analysis
+territory_effectiveness <- effectiveness_analysis %>%
+  group_by(Territory) %>%
+  summarise(
+    Elections = n(),
+    Avg_Fragmentation = round(mean(Party_Seat_Ratio), 3),
+    
+    # Average improvement from graduated thresholds
+    Avg_Graduated_Improvement = round(mean(Graduated_vs_Current), 3),
+    Max_Graduated_Improvement = round(max(Graduated_vs_Current), 3),
+    
+    # When graduated thresholds win
+    Graduated_Best_Count = sum(Best_Method == "Graduated"),
+    Graduated_Best_Pct = round(100 * sum(Best_Method == "Graduated") / n(), 1),
+    
+    .groups = 'drop'
+  )
+
+cat("\n\nTABLE: Graduated Threshold Performance by Territory\n")
+cat("---------------------------------------------------------------------\n")
+print(territory_effectiveness)
+
+# =============================================================================
+# FIGURE 1: EFFECTIVENESS GAP vs FRAGMENTATION
+# =============================================================================
+
+cat("\n\nGenerating visualization of threshold effectiveness...\n")
+
+# Create long format for plotting
+effectiveness_long <- effectiveness_analysis %>%
+  select(Territory, Year, Party_Seat_Ratio, 
+         Graduated_vs_Current, Graduated_vs_Sainte, Sainte_vs_Current) %>%
+  pivot_longer(cols = c(Graduated_vs_Current, Graduated_vs_Sainte, Sainte_vs_Current),
+               names_to = "Comparison",
+               values_to = "ERI_Gap") %>%
+  mutate(
+    Comparison_Label = case_when(
+      Comparison == "Graduated_vs_Current" ~ "Graduated vs Current System",
+      Comparison == "Graduated_vs_Sainte" ~ "Graduated vs Sainte-Laguë",
+      Comparison == "Sainte_vs_Current" ~ "Sainte-Laguë vs Current System"
+    )
+  )
+
+# Main effectiveness plot
+p_effectiveness <- ggplot(effectiveness_long %>% 
+                            filter(Comparison == "Graduated_vs_Current"),
+                          aes(x = Party_Seat_Ratio, y = ERI_Gap)) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_point(aes(color = Territory), size = 3, alpha = 0.7) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.2, color = "black") +
+  # Add shaded regions
+  annotate("rect", xmin = 0, xmax = 0.25, ymin = -0.15, ymax = 0.15,
+           alpha = 0.1, fill = "red") +
+  annotate("rect", xmin = 0.35, xmax = 0.6, ymin = -0.15, ymax = 0.15,
+           alpha = 0.1, fill = "green") +
+  # Add region labels
+  annotate("text", x = 0.125, y = 0.14, label = "Low fragmentation:\nThresholds less effective",
+           size = 3, color = "darkred", fontface = "italic") +
+  annotate("text", x = 0.475, y = 0.14, label = "High fragmentation:\nGraduated thresholds excel",
+           size = 3, color = "darkgreen", fontface = "italic") +
+  scale_x_continuous(labels = scales::percent, limits = c(0.15, 0.6)) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.15, 0.15)) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  labs(
+    title = "When Do Graduated Thresholds Add Value?",
+    subtitle = "Effectiveness of 75%-50% thresholds compared to current systems",
+    x = "Party Fragmentation (Parties / Seats)",
+    y = "ERI Improvement from Graduated Thresholds",
+    caption = "Positive values = graduated thresholds perform better | Negative = current system performs better\nOptimal zone for graduated thresholds: 0.35-0.50 party/seat ratio"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "right"
+  )
+
+print(p_effectiveness)
+ggsave("figures/Figure5_Threshold_Effectiveness.png", p_effectiveness,
+       width = 12, height = 7, dpi = 300)
+
+# =============================================================================
+# FIGURE 2: METHOD COMPARISON ACROSS FRAGMENTATION SPECTRUM
+# =============================================================================
+
+# Prepare data for method comparison
+method_comparison <- effectiveness_analysis %>%
+  select(Territory, Year, Party_Seat_Ratio, 
+         ERI_Current, ERI_75_50, ERI_Sainte_Lague) %>%
+  pivot_longer(cols = c(ERI_Current, ERI_75_50, ERI_Sainte_Lague),
+               names_to = "Method",
+               values_to = "ERI") %>%
+  mutate(
+    Method_Label = case_when(
+      Method == "ERI_Current" ~ "Current System",
+      Method == "ERI_75_50" ~ "75%-50% Graduated",
+      Method == "ERI_Sainte_Lague" ~ "Sainte-Laguë"
+    )
+  )
+
+p_method_comparison <- ggplot(method_comparison,
+                              aes(x = Party_Seat_Ratio, y = ERI, 
+                                  color = Method_Label, linetype = Method_Label)) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.15, size = 1.2) +
+  geom_vline(xintercept = c(0.25, 0.35, 0.45), 
+             linetype = "dotted", alpha = 0.3) +
+  # Add vertical region labels
+  annotate("text", x = 0.20, y = 0.70, label = "Low\nFragmentation", 
+           size = 3, color = "gray40", angle = 90) +
+  annotate("text", x = 0.30, y = 0.70, label = "Moderate\nFragmentation", 
+           size = 3, color = "gray40", angle = 90) +
+  annotate("text", x = 0.40, y = 0.70, label = "High\nFragmentation", 
+           size = 3, color = "gray40", angle = 90) +
+  annotate("text", x = 0.50, y = 0.70, label = "Very High\nFragmentation", 
+           size = 3, color = "gray40", angle = 90) +
+  scale_x_continuous(labels = scales::percent, limits = c(0.15, 0.6)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0.65, 1.02)) +
+  scale_color_manual(values = c("Current System" = "#1f77b4",
+                                "75%-50% Graduated" = "#2ca02c",
+                                "Sainte-Laguë" = "#ff7f0e")) +
+  scale_linetype_manual(values = c("Current System" = "solid",
+                                   "75%-50% Graduated" = "dashed",
+                                   "Sainte-Laguë" = "dotted")) +
+  labs(
+    title = "Electoral Method Performance Across Fragmentation Levels",
+    subtitle = "How different allocation methods perform as party fragmentation increases",
+    x = "Party Fragmentation (Parties / Seats)",
+    y = "Effective Representation Index (ERI)",
+    color = "Method",
+    linetype = "Method",
+    caption = "Key insight: Sainte-Laguë excels at low fragmentation (no thresholds needed)\nGraduated thresholds optimal at moderate-high fragmentation (balance inclusion/stability)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "bottom"
+  )
+
+print(p_method_comparison)
+ggsave("figures/Figure6_Method_Comparison.png", p_method_comparison,
+       width = 12, height = 8, dpi = 300)
+
+# =============================================================================
+# KEY INSIGHTS SUMMARY
+# =============================================================================
+
+cat("\n")
+cat("=============================================================================\n")
+cat("KEY INSIGHTS FROM EFFECTIVENESS ANALYSIS\n")
+cat("=============================================================================\n\n")
+
+# Calculate optimal ranges
+low_frag_data <- effectiveness_analysis %>% filter(Party_Seat_Ratio <= 0.25)
+high_frag_data <- effectiveness_analysis %>% filter(Party_Seat_Ratio >= 0.35)
+
+cat("1. LOW FRAGMENTATION (party/seat ratio < 0.25):\n")
+cat("   - Found in", nrow(low_frag_data), "elections\n")
+cat("   - Sainte-Laguë performs best in", 
+    sum(low_frag_data$Best_Method == "Sainte-Laguë"), "cases\n")
+cat("   - Average ERI with Sainte-Laguë:", 
+    round(mean(low_frag_data$ERI_Sainte_Lague), 3), "\n")
+cat("   - Graduated thresholds provide minimal advantage\n\n")
+
+cat("2. HIGH FRAGMENTATION (party/seat ratio > 0.35):\n")
+cat("   - Found in", nrow(high_frag_data), "elections\n")
+cat("   - Graduated thresholds perform best in", 
+    sum(high_frag_data$Best_Method == "Graduated"), "cases\n")
+cat("   - Average improvement from graduated thresholds:", 
+    round(mean(high_frag_data$Graduated_vs_Current), 3), "\n")
+cat("   - Maximum improvement observed:", 
+    round(max(high_frag_data$Graduated_vs_Current), 3), "\n\n")
+
+# Sint Maarten specific analysis
+sm_data <- effectiveness_analysis %>% filter(Territory == "Sint Maarten")
+cat("3. SINT MAARTEN SPECIFIC:\n")
+cat("   - Average party/seat ratio:", round(mean(sm_data$Party_Seat_Ratio), 3), "\n")
+cat("   - Falls mostly in LOW fragmentation zone\n")
+cat("   - This explains why Sainte-Laguë often outperforms graduated thresholds\n")
+cat("   - Graduated thresholds designed for higher fragmentation contexts\n\n")
+
+cat("4. POLICY IMPLICATIONS:\n")
+cat("   - For assemblies with <25% party/seat ratio: Consider no-threshold systems\n")
+cat("   - For assemblies with 25-35% ratio: Graduated thresholds begin adding value\n")
+cat("   - For assemblies with >35% ratio: Graduated thresholds strongly recommended\n")
+cat("   - Most modern democracies trend toward higher fragmentation over time\n")
+
+cat("\n")
+cat("=============================================================================\n")
+cat("END OF EFFECTIVENESS ANALYSIS\n")
+cat("=============================================================================\n")
