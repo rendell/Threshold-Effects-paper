@@ -1,11 +1,11 @@
 # =============================================================================
-# COMPLETE TABLES AND FIGURES GENERATOR
+# COMPLETE TABLES AND FIGURES GENERATOR - ITERATION 8
 # Paper: "The High-Magnitude Paradox: Threshold Effects in Single-District Small Assemblies"
 # =============================================================================
 # 
 # Author: Rendell Ernest de Kort
 # Date: January 2025
-# Version: 5.0 - Fixed all syntax errors
+# Version: 8.0 - FIXED ERI calculations for all methods
 # =============================================================================
 
 # Clear workspace and setup
@@ -34,15 +34,17 @@ print_separator <- function() {
 }
 
 print_separator()
-cat("GENERATING ALL TABLES AND FIGURES FOR PAPER\n")
+cat("GENERATING ALL TABLES AND FIGURES FOR PAPER - ITERATION 8\n")
+cat("FIXED: ERI now correctly measures % of votes going to parties that won seats\n")
 print_separator()
 cat("\n")
 
 # =============================================================================
-# PART 1: ELECTORAL SYSTEM FUNCTIONS
+# PART 1: ELECTORAL SYSTEM FUNCTIONS - CORRECTED ERI CALCULATIONS
 # =============================================================================
 
 # Aruba: Kiesdeler threshold
+# Parties must reach kiesdeler to compete for remainder seats
 allocate_seats_aruba <- function(votes, parties, total_seats = 21) {
   total_votes <- sum(votes)
   kiesdeler <- round(total_votes / total_seats)
@@ -54,6 +56,7 @@ allocate_seats_aruba <- function(votes, parties, total_seats = 21) {
     stringsAsFactors = FALSE
   )
   
+  # Allocate remainder seats only to parties reaching kiesdeler
   while (remaining_seats > 0) {
     allocation$divisor <- allocation$votes / (allocation$seats + 1)
     eligible <- which(allocation$votes >= kiesdeler)
@@ -63,40 +66,73 @@ allocate_seats_aruba <- function(votes, parties, total_seats = 21) {
     remaining_seats <- remaining_seats - 1
   }
   
-  effective_votes <- sum(allocation$votes[allocation$votes >= kiesdeler])
+  # ERI = votes for parties that got seats / total votes
+  effective_votes <- sum(allocation$votes[allocation$seats > 0])
   eri <- effective_votes / total_votes
   
   list(allocation = allocation, eri = eri, kiesdeler = kiesdeler)
 }
 
 # Sint Maarten: Electoral quota threshold
+# Parties below quota are excluded entirely
 allocate_seats_sint_maarten <- function(votes, parties, total_seats = 15) {
   total_votes <- sum(votes)
   quota <- round(total_votes / total_seats)
-  initial_seats <- floor(votes / quota)
+  
+  # Filter out parties below quota first
+  eligible_mask <- votes >= quota
+  eligible_votes <- votes[eligible_mask]
+  eligible_parties <- parties[eligible_mask]
+  
+  if (length(eligible_votes) == 0) {
+    # Fallback if no parties meet quota (shouldn't happen)
+    eligible_votes <- votes
+    eligible_parties <- parties
+    eligible_mask <- rep(TRUE, length(votes))
+  }
+  
+  # Allocate seats only among eligible parties
+  eligible_total <- sum(eligible_votes)
+  initial_seats <- floor(eligible_votes / quota)
   remaining_seats <- total_seats - sum(initial_seats)
   
-  allocation <- data.frame(
-    party = parties, votes = votes, seats = initial_seats,
+  eligible_allocation <- data.frame(
+    party = eligible_parties, 
+    votes = eligible_votes, 
+    seats = initial_seats,
     stringsAsFactors = FALSE
   )
   
-  while (remaining_seats > 0) {
-    allocation$divisor <- allocation$votes / (allocation$seats + 1)
-    eligible <- which(allocation$votes >= quota)
-    if (length(eligible) == 0) break
-    winner <- eligible[which.max(allocation$divisor[eligible])]
-    allocation$seats[winner] <- allocation$seats[winner] + 1
+  # D'Hondt for remainders among eligible parties
+  while (remaining_seats > 0 && nrow(eligible_allocation) > 0) {
+    eligible_allocation$divisor <- eligible_allocation$votes / (eligible_allocation$seats + 1)
+    winner <- which.max(eligible_allocation$divisor)
+    eligible_allocation$seats[winner] <- eligible_allocation$seats[winner] + 1
     remaining_seats <- remaining_seats - 1
   }
   
-  effective_votes <- sum(allocation$votes[allocation$votes >= quota])
+  # Create full allocation including excluded parties
+  allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    seats = rep(0, length(parties)),
+    stringsAsFactors = FALSE
+  )
+  
+  # Fill in seats for eligible parties
+  for (i in 1:nrow(eligible_allocation)) {
+    idx <- which(allocation$party == eligible_allocation$party[i])
+    allocation$seats[idx] <- eligible_allocation$seats[i]
+  }
+  
+  # ERI = votes for parties that got seats / total votes
+  effective_votes <- sum(allocation$votes[allocation$seats > 0])
   eri <- effective_votes / total_votes
   
   list(allocation = allocation, eri = eri, quota = quota)
 }
 
-# Standard D'Hondt
+# Standard D'Hondt - ALL parties can compete
 allocate_seats_dhondt <- function(votes, parties, total_seats = 21) {
   allocation <- data.frame(
     party = parties, votes = votes, seats = rep(0, length(parties)),
@@ -109,61 +145,66 @@ allocate_seats_dhondt <- function(votes, parties, total_seats = 21) {
     allocation$seats[winner] <- allocation$seats[winner] + 1
   }
   
-  vote_pct <- votes / sum(votes)
-  seat_pct <- allocation$seats / total_seats
-  eri <- 1 - sum(abs(vote_pct - seat_pct)) / 1
+  # ERI = votes for parties that got seats / total votes
+  effective_votes <- sum(allocation$votes[allocation$seats > 0])
+  eri <- effective_votes / sum(votes)
   
   list(allocation = allocation, eri = eri)
 }
 
-# Graduated thresholds (75%/50%)
+# Graduated thresholds (75%/50%) - Curaçao post-2021
 allocate_seats_graduated <- function(votes, parties, total_seats = 21) {
   total_votes <- sum(votes)
   kiesdeler <- round(total_votes / total_seats)
   initial_seats <- floor(votes / kiesdeler)
-  remainders <- votes - (initial_seats * kiesdeler)
   remaining_seats <- total_seats - sum(initial_seats)
   
   allocation <- data.frame(
-    party = parties, votes = votes, seats = initial_seats,
-    remainders = remainders, stringsAsFactors = FALSE
+    party = parties, 
+    votes = votes, 
+    seats = initial_seats,
+    stringsAsFactors = FALSE
   )
   
-  # 75% threshold
+  # Define both thresholds at the start
   threshold_75 <- 0.75 * kiesdeler
+  threshold_50 <- 0.50 * kiesdeler
+  
+  # First round: 75% threshold
   while (remaining_seats > 0) {
+    allocation$remainders <- votes - (allocation$seats * kiesdeler)
     eligible <- which(allocation$votes >= threshold_75 & allocation$remainders > 0)
+    
     if (length(eligible) == 0) break
+    
     winner <- eligible[which.max(allocation$remainders[eligible])]
     allocation$seats[winner] <- allocation$seats[winner] + 1
-    allocation$remainders[winner] <- 0
     remaining_seats <- remaining_seats - 1
   }
   
-  # 50% threshold
+  # Second round: 50% threshold
   if (remaining_seats > 0) {
-    threshold_50 <- 0.50 * kiesdeler
-    allocation$remainders[allocation$remainders == 0] <- 0
-    allocation$remainders[allocation$remainders > 0] <- 
-      votes[allocation$remainders > 0] - (allocation$seats[allocation$remainders > 0] * kiesdeler)
-    
     while (remaining_seats > 0) {
+      allocation$remainders <- votes - (allocation$seats * kiesdeler)
       eligible <- which(allocation$votes >= threshold_50 & allocation$remainders > 0)
+      
       if (length(eligible) == 0) break
+      
       winner <- eligible[which.max(allocation$remainders[eligible])]
       allocation$seats[winner] <- allocation$seats[winner] + 1
-      allocation$remainders[winner] <- 0
       remaining_seats <- remaining_seats - 1
     }
   }
   
-  effective_votes <- sum(allocation$votes[allocation$votes >= threshold_75])
+  # ERI = votes for parties that got seats / total votes
+  effective_votes <- sum(allocation$votes[allocation$seats > 0])
   eri <- effective_votes / total_votes
   
-  list(allocation = allocation, eri = eri, kiesdeler = kiesdeler)
+  list(allocation = allocation, eri = eri, kiesdeler = kiesdeler, 
+       threshold_75 = threshold_75, threshold_50 = threshold_50)
 }
 
-# Sainte-Laguë
+# Sainte-Laguë - ALL parties can compete
 allocate_seats_sainte_lague <- function(votes, parties, total_seats) {
   allocation <- data.frame(
     party = parties, votes = votes, seats = rep(0, length(parties)),
@@ -176,9 +217,9 @@ allocate_seats_sainte_lague <- function(votes, parties, total_seats) {
     allocation$seats[winner] <- allocation$seats[winner] + 1
   }
   
-  vote_pct <- votes / sum(votes)
-  seat_pct <- allocation$seats / total_seats
-  eri <- 1 - sum(abs(vote_pct - seat_pct)) / 1
+  # ERI = votes for parties that got seats / total votes
+  effective_votes <- sum(allocation$votes[allocation$seats > 0])
+  eri <- effective_votes / sum(votes)
   
   list(allocation = allocation, eri = eri)
 }
@@ -247,10 +288,11 @@ elections_data <- list(
 )
 
 # =============================================================================
-# PART 3: CALCULATE ALL ERI VALUES
+# PART 3: CALCULATE ALL ERI VALUES AND VERIFY
 # =============================================================================
 
-cat("Calculating ERI values for all elections and methods...\n\n")
+cat("Calculating ERI values for all elections and methods...\n")
+cat("ERI = % of votes going to parties that received seats\n\n")
 
 results <- data.frame()
 
@@ -272,6 +314,11 @@ for (e in elections_data) {
   graduated <- allocate_seats_graduated(e$votes, e$parties, e$seats)
   sainte <- allocate_seats_sainte_lague(e$votes, e$parties, e$seats)
   
+  # Verify no impossible values
+  if (current$eri >= 0.999) {
+    cat("WARNING: Suspicious ERI for", e$territory, e$year, ":", current$eri, "\n")
+  }
+  
   results <- rbind(results, data.frame(
     Territory = e$territory,
     Year = e$year,
@@ -286,14 +333,90 @@ for (e in elections_data) {
   ))
 }
 
+# Display verification of corrected values
+cat("\nVERIFICATION: Sample of corrected ERI values:\n")
+print_separator()
+sample_check <- results %>%
+  filter((Territory == "Aruba" & Year == 1985) | 
+           (Territory == "Sint Maarten" & Year %in% c(2018, 2020)) |
+           (Territory == "Curaçao" & Year == 2025)) %>%
+  select(Territory, Year, ERI_Current) %>%
+  mutate(ERI_Current = round(ERI_Current, 3))
+print(sample_check)
+cat("\n")
+
+# =============================================================================
+# GALLAGHER INDEX ANALYSIS
+# =============================================================================
+
+cat("\n=== CALCULATING GALLAGHER INDEX AND ERI CORRELATION ===\n\n")
+
+# Function to calculate Gallagher Index
+calculate_gallagher <- function(votes, seats, total_seats) {
+  total_votes <- sum(votes)
+  vote_pct <- (votes / total_votes) * 100
+  seat_pct <- (seats / total_seats) * 100
+  gallagher <- sqrt(0.5 * sum((vote_pct - seat_pct)^2))
+  return(gallagher)
+}
+
+# Calculate Gallagher index for each election
+gallagher_results <- data.frame()
+
+for (e in elections_data) {
+  # Get seat allocation based on current system
+  if (e$territory == "Aruba") {
+    allocation <- allocate_seats_aruba(e$votes, e$parties, e$seats)$allocation
+  } else if (e$territory == "Sint Maarten") {
+    allocation <- allocate_seats_sint_maarten(e$votes, e$parties, e$seats)$allocation
+  } else { # Curaçao
+    if (e$year < 2021) {
+      allocation <- allocate_seats_dhondt(e$votes, e$parties, e$seats)$allocation
+    } else {
+      allocation <- allocate_seats_graduated(e$votes, e$parties, e$seats)$allocation
+    }
+  }
+  
+  # Calculate Gallagher index
+  gallagher <- calculate_gallagher(e$votes, allocation$seats, e$seats)
+  
+  # Get ERI from our results dataframe
+  eri <- results$ERI_Current[results$Territory == e$territory & results$Year == e$year]
+  
+  gallagher_results <- rbind(gallagher_results, data.frame(
+    Territory = e$territory,
+    Year = e$year,
+    ERI = eri,
+    Gallagher = gallagher,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Display the corrected results
+cat("CORRECTED ERI VALUES (showing full dataset):\n")
+print_separator()
+gallagher_results$YearLabel <- paste0("'", substr(as.character(gallagher_results$Year), 3, 4))
+print(gallagher_results %>% 
+        mutate(ERI = round(ERI, 3), 
+               Gallagher = round(Gallagher, 2),
+               Excluded_Pct = paste0(round((1-ERI)*100, 1), "%")), 
+      row.names = FALSE)
+write.csv(gallagher_results, "tables/Corrected_ERI_Gallagher.csv", row.names = FALSE)
+
+# Calculate correlation
+correlation_value <- round(cor(gallagher_results$ERI, gallagher_results$Gallagher, use = "complete.obs"), 3)
+
+cat("\n")
+cat("Correlation between ERI and Gallagher Index: r =", correlation_value, "\n")
+cat("Interpretation: Weak", ifelse(correlation_value < 0, "negative", "positive"), "relationship\n")
+
 # =============================================================================
 # MAIN TEXT TABLES
 # =============================================================================
 
-cat("\n=== GENERATING MAIN TEXT TABLES ===\n\n")
+cat("\n\n=== GENERATING MAIN TEXT TABLES ===\n\n")
 
 # TABLE 1: Summary of Electoral System Performance
-# First create the summary, then add the electoral system column
 table1 <- results %>%
   group_by(Territory) %>%
   summarise(
@@ -314,7 +437,7 @@ table1$`Electoral System` <- ifelse(table1$Territory == "Aruba", "Kiesdeler thre
 cat("TABLE 1: Summary of Electoral System Performance (CAS Territories)\n")
 print_separator()
 print(table1)
-write.csv(table1, "tables/Table1_Summary_Statistics.csv", row.names = FALSE)
+write.csv(table1, "tables/Table1_Summary_Statistics_Corrected.csv", row.names = FALSE)
 
 # =============================================================================
 # FIGURES: COMPARATIVE VISUALIZATIONS
@@ -322,8 +445,144 @@ write.csv(table1, "tables/Table1_Summary_Statistics.csv", row.names = FALSE)
 
 cat("\n=== GENERATING COMPARATIVE VISUALIZATIONS ===\n\n")
 
-# FIGURE 1: ERI BY TERRITORY AND METHOD (HORIZONTAL LAYOUT)
-# Prepare data for the comparison plot
+# Set the inclusion thresholds for all visualizations
+eri_midpoint <- 0.85      # 85% threshold for meaningful inclusion
+gallagher_midpoint <- 5.5  # Standard threshold for proportionality
+
+# FIGURE 1: ERI vs Gallagher Index Scatter Plot with Quadrants
+# Prepare year labels - showing last 2 digits for space
+gallagher_results$YearLabel <- paste0("'", substr(as.character(gallagher_results$Year), 3, 4))
+
+# Create quadrant labels
+quadrant_labels <- data.frame(
+  x = c(0.75, 0.93, 0.75, 0.93),
+  y = c(3, 3, 8.5, 8.5),
+  label = c("Exclusive but\nProportional\n(Threshold Democracy)", 
+            "Inclusive and\nProportional\n(Democratic Ideal)",
+            "Exclusive and\nDistorted\n(Democratic Failure)", 
+            "Inclusive but\nDistorted\n(Majoritarian Tendencies)"),
+  stringsAsFactors = FALSE
+)
+
+# Add Curaçao reform annotation
+curacao_reform <- gallagher_results %>%
+  filter(Territory == "Curaçao", Year %in% c(2017, 2021, 2025))
+
+# Create the scatter plot
+p_eri_gallagher <- ggplot(gallagher_results, aes(x = ERI, y = Gallagher)) +
+  # Add quadrant shading
+  annotate("rect", xmin = 0.65, xmax = eri_midpoint, ymin = 0, ymax = gallagher_midpoint,
+           alpha = 0.1, fill = "blue") +
+  annotate("rect", xmin = eri_midpoint, xmax = 1, ymin = 0, ymax = gallagher_midpoint,
+           alpha = 0.1, fill = "green") +
+  annotate("rect", xmin = 0.65, xmax = eri_midpoint, ymin = gallagher_midpoint, ymax = 12,
+           alpha = 0.1, fill = "red") +
+  annotate("rect", xmin = eri_midpoint, xmax = 1, ymin = gallagher_midpoint, ymax = 12,
+           alpha = 0.1, fill = "orange") +
+  # Add quadrant lines
+  geom_vline(xintercept = eri_midpoint, linetype = "dashed", alpha = 0.5) +
+  geom_hline(yintercept = gallagher_midpoint, linetype = "dashed", alpha = 0.5) +
+  # Add points
+  geom_point(aes(color = Territory), size = 3, alpha = 0.8) +
+  # Highlight Curaçao's reform trajectory
+  geom_path(data = curacao_reform, aes(x = ERI, y = Gallagher),
+            arrow = arrow(length = unit(0.3, "cm"), type = "open"),
+            linewidth = 1, color = "darkgreen", alpha = 0.7) +
+  # Add quadrant labels
+  geom_text(data = quadrant_labels, 
+            aes(x = x, y = y, label = label),
+            size = 3.5, color = "gray30", fontface = "italic") +
+  # Add year labels
+  geom_text(aes(label = YearLabel),
+            size = 2.5,
+            vjust = -0.5,
+            hjust = 0.5,
+            check_overlap = TRUE,
+            show.legend = FALSE) +
+  # Scales and labels
+  scale_x_continuous(limits = c(0.65, 1), labels = scales::percent) +
+  scale_y_continuous(limits = c(0, 12)) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  labs(
+    title = "Process vs Outcome: ERI and Gallagher Index Relationship",
+    subtitle = paste0("Correlation: r = ", correlation_value, " (weak negative relationship)"),
+    x = "Effective Representation Index (Process Inclusion)",
+    y = "Gallagher Index (Outcome Disproportionality)",
+    caption = "Note: Lower Gallagher scores indicate better proportionality. Arrow shows Curaçao's reform trajectory.\nQuadrants reveal how systems can be inclusive yet distorted, or exclusive yet proportional.",
+    color = "Territory"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "right",
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+
+print(p_eri_gallagher)
+ggsave("figures/Figure_ERI_vs_Gallagher.png", p_eri_gallagher, 
+       width = 12, height = 8, dpi = 300)
+
+# FIGURE 2: Faceted version for clearer year labels
+gallagher_results_sorted <- gallagher_results %>%
+  arrange(Territory, Year)
+
+p_eri_gallagher_faceted <- ggplot(gallagher_results_sorted, aes(x = ERI, y = Gallagher)) +
+  # Add quadrant shading
+  annotate("rect", xmin = 0.65, xmax = eri_midpoint, ymin = 0, ymax = gallagher_midpoint,
+           alpha = 0.05, fill = "blue") +
+  annotate("rect", xmin = eri_midpoint, xmax = 1, ymin = 0, ymax = gallagher_midpoint,
+           alpha = 0.05, fill = "green") +
+  annotate("rect", xmin = 0.65, xmax = eri_midpoint, ymin = gallagher_midpoint, ymax = 12,
+           alpha = 0.05, fill = "red") +
+  annotate("rect", xmin = eri_midpoint, xmax = 1, ymin = gallagher_midpoint, ymax = 12,
+           alpha = 0.05, fill = "orange") +
+  # Add quadrant lines
+  geom_vline(xintercept = eri_midpoint, linetype = "dashed", alpha = 0.3) +
+  geom_hline(yintercept = gallagher_midpoint, linetype = "dashed", alpha = 0.3) +
+  # Add chronological path lines
+  geom_path(aes(group = Territory), color = "gray60", alpha = 0.2, linewidth = 0.5) +
+  # Add points
+  geom_point(aes(color = Territory), size = 3) +
+  # Add year labels
+  geom_text(aes(label = YearLabel), size = 2.5, vjust = -0.8) +
+  # Facet by territory
+  facet_wrap(~Territory, ncol = 3) +
+  # Scales and labels
+  scale_x_continuous(limits = c(0.65, 1), labels = scales::percent) +
+  scale_y_continuous(limits = c(0, 12)) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  labs(
+    title = "Process vs Outcome by Territory: ERI and Gallagher Index Over Time",
+    subtitle = paste0("Vertical line at ", eri_midpoint*100, "% ERI separates inclusive from exclusive systems"),
+    x = "Effective Representation Index (Process Inclusion)",
+    y = "Gallagher Index (Outcome Disproportionality)",
+    caption = "Green: Democratic Ideal | Blue: Threshold Democracy | Orange: Majoritarian | Red: Democratic Failure\nFaint lines show chronological progression of elections"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 10),
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9)
+  )
+
+print(p_eri_gallagher_faceted)
+ggsave("figures/Figure_ERI_vs_Gallagher_Faceted.png", p_eri_gallagher_faceted, 
+       width = 14, height = 5, dpi = 300)
+
+# FIGURE 3: ERI BY TERRITORY AND METHOD (COMPARISON)
 plot_data <- results %>%
   select(Territory, Year, ERI_Current, ERI_Sainte_Lague, ERI_75_50) %>%
   pivot_longer(cols = starts_with("ERI_"), 
@@ -336,11 +595,10 @@ plot_data <- results %>%
     TRUE ~ "Unknown"
   ))
 
-# Create the comparative plot by territory and method (HORIZONTAL)
 p_comparison <- ggplot(plot_data, aes(x = Year, y = ERI, color = Method, linetype = Method)) +
   geom_line(linewidth = 1.2) +
   geom_point(size = 2) +
-  facet_wrap(~Territory, ncol = 3, scales = "free_x") +  # Changed to ncol = 3 for horizontal layout
+  facet_wrap(~Territory, ncol = 3, scales = "free_x") +
   scale_color_manual(values = c("Current System" = "#1f77b4", 
                                 "Sainte-Laguë" = "#ff7f0e", 
                                 "75%/50% Threshold" = "#2ca02c")) +
@@ -367,134 +625,29 @@ p_comparison <- ggplot(plot_data, aes(x = Year, y = ERI, color = Method, linetyp
 
 print(p_comparison)
 ggsave("figures/Figure1_ERI_by_Territory_and_Method.png", p_comparison, 
-       width = 14, height = 6, dpi = 300)  # Adjusted dimensions for horizontal layout
+       width = 14, height = 6, dpi = 300)
 
-# FIGURE 2: NETHERLANDS VS DUTCH CARIBBEAN COMPARISON
-# Add Dutch national elections data
-dutch_elections <- data.frame(
-  year = c(1986, 1989, 1994, 1998, 2002, 2003, 2006, 2010, 2012, 2017, 2021, 2023),
-  total_votes = c(8324523, 8646694, 9359284, 9098176, 9655475, 9683766, 
-                  9854998, 9442976, 9462223, 10351015, 10426651, 10611735),
-  effective_votes = c(8265614, 8598213, 9293467, 9029834, 9576417, 9600873,
-                      9781087, 9369553, 9379818, 10265532, 10327358, 10535031),
-  stringsAsFactors = FALSE
-)
-
-dutch_elections$ERI <- dutch_elections$effective_votes / dutch_elections$total_votes
-
-# Calculate mean ERI for each territory
-cas_summary <- results %>%
-  group_by(Territory) %>%
+# Additional analysis: Distribution of elections by quadrant
+divergent_cases <- gallagher_results %>%
+  mutate(
+    Quadrant = case_when(
+      ERI < eri_midpoint & Gallagher < gallagher_midpoint ~ "Exclusive but Proportional",
+      ERI >= eri_midpoint & Gallagher < gallagher_midpoint ~ "Inclusive and Proportional",
+      ERI < eri_midpoint & Gallagher >= gallagher_midpoint ~ "Exclusive and Distorted",
+      ERI >= eri_midpoint & Gallagher >= gallagher_midpoint ~ "Inclusive but Distorted"
+    )
+  ) %>%
+  group_by(Quadrant) %>%
   summarise(
-    Mean_ERI = mean(ERI_Current),
-    Min_ERI = min(ERI_Current),
-    Max_ERI = max(ERI_Current),
+    Count = n(),
+    Example = paste0(first(Territory), " ", first(Year)),
     .groups = 'drop'
   )
 
-# Add Netherlands summary
-nl_summary <- data.frame(
-  Territory = "Netherlands",
-  Mean_ERI = mean(dutch_elections$ERI),
-  Min_ERI = min(dutch_elections$ERI),
-  Max_ERI = max(dutch_elections$ERI),
-  stringsAsFactors = FALSE
-)
-
-comparison_summary <- rbind(nl_summary, cas_summary)
-
-# Create bar plot comparing Netherlands with Caribbean territories
-p_nl_comparison <- ggplot(comparison_summary, aes(x = reorder(Territory, -Mean_ERI), y = Mean_ERI)) +
-  geom_bar(stat = "identity", fill = c("#FF6B35", "#1f77b4", "#ff7f0e", "#2ca02c"), width = 0.7) +
-  geom_errorbar(aes(ymin = Min_ERI, ymax = Max_ERI), width = 0.2, alpha = 0.5) +
-  geom_text(aes(label = paste0(round(Mean_ERI * 100, 1), "%")), 
-            vjust = -0.5, size = 4, fontface = "bold") +
-  scale_y_continuous(labels = scales::percent, limits = c(0, 1.05)) +
-  labs(
-    title = "The Scale Effect: Netherlands vs Dutch Caribbean",
-    subtitle = "Mean ERI comparison showing impact of assembly size on representation",
-    x = NULL,
-    y = "Mean Effective Representation Index",
-    caption = "Netherlands: 150 seats, single district | Caribbean: 15-21 seats, single district\nError bars show min-max range across elections"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 14, face = "bold"),
-    plot.subtitle = element_text(size = 11, color = "gray40"),
-    axis.text.x = element_text(size = 11),
-    panel.grid.major.x = element_blank()
-  )
-
-print(p_nl_comparison)
-ggsave("figures/Figure2_Netherlands_Caribbean_Comparison.png", p_nl_comparison, 
-       width = 10, height = 6, dpi = 300)
-
-# Create time series comparison
-dutch_time_data <- dutch_elections %>%
-  select(year, ERI) %>%
-  mutate(Territory = "Netherlands (150 seats)")
-
-caribbean_time_data <- results %>%
-  group_by(Year) %>%
-  summarise(ERI = mean(ERI_Current), .groups = 'drop') %>%
-  rename(year = Year) %>%
-  mutate(Territory = "Dutch Caribbean (15-21 seats)")
-
-combined_time_data <- rbind(dutch_time_data, caribbean_time_data)
-
-p_time_comparison <- ggplot(combined_time_data, aes(x = year, y = ERI, color = Territory)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2.5) +
-  scale_y_continuous(labels = scales::percent, limits = c(0.65, 1)) +
-  scale_color_manual(values = c("Netherlands (150 seats)" = "#FF6B35",
-                                "Dutch Caribbean (15-21 seats)" = "#4ECDC4")) +
-  labs(
-    title = "ERI Over Time: Scale Effects in Single-District PR",
-    subtitle = "Same electoral system, different assembly sizes, different outcomes",
-    x = "Year",
-    y = "Effective Representation Index (ERI)",
-    caption = paste0("Netherlands mean: ", round(mean(dutch_elections$ERI) * 100, 1), "%",
-                     " | Caribbean mean: ", round(mean(results$ERI_Current) * 100, 1), "%")
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 14, face = "bold"),
-    plot.subtitle = element_text(size = 11, color = "gray40"),
-    legend.position = "top",
-    legend.title = element_blank(),
-    panel.grid.minor = element_blank()
-  )
-
-print(p_time_comparison)
-ggsave("figures/Figure3_Time_Series_Comparison.png", p_time_comparison, 
-       width = 10, height = 6, dpi = 300)
-
-# =============================================================================
-# APPENDIX A: COMPLETE ELECTORAL DATA
-# =============================================================================
-
-cat("\n=== GENERATING APPENDIX A ===\n\n")
-
-appendix_a <- results %>%
-  arrange(Territory, Year) %>%
-  mutate(
-    Total_Votes = format(Total_Votes, big.mark = ","),
-    Registered_Voters = ifelse(is.na(Registered_Voters), "-", 
-                               format(Registered_Voters, big.mark = ",")),
-    Turnout_Percent = ifelse(is.na(Turnout_Percent), "-", 
-                             paste0(round(Turnout_Percent, 1), "%")),
-    across(starts_with("ERI"), ~round(., 3))
-  ) %>%
-  rename(
-    `ERI Current` = ERI_Current,
-    `ERI Sainte-Laguë` = ERI_Sainte_Lague,
-    `ERI 75%/50%` = ERI_75_50
-  )
-
-cat("APPENDIX A: Complete Electoral Results by Territory and Year\n")
+cat("\n")
+cat("Distribution of Elections by Democratic Quadrant:\n")
 print_separator()
-print(appendix_a)
-write.csv(appendix_a, "tables/AppendixA_Complete_Electoral_Data.csv", row.names = FALSE)
+print(divergent_cases)
 
 # =============================================================================
 # SUMMARY REPORT
@@ -502,13 +655,14 @@ write.csv(appendix_a, "tables/AppendixA_Complete_Electoral_Data.csv", row.names 
 
 cat("\n")
 print_separator()
-cat("ALL TABLES AND FIGURES GENERATED SUCCESSFULLY\n")
+cat("ANALYSIS COMPLETED - ITERATION 8 (CORRECTED WITH PLOTS)\n")
 print_separator()
 cat("\n")
 
-cat("Key Findings Verified:\n")
+cat("Key Findings (Corrected Values):\n")
 curacao_2025 <- results$ERI_Current[results$Territory == "Curaçao" & results$Year == 2025]
 cat("  - Curaçao 2025 ERI:", round(curacao_2025, 3), "\n")
+cat("  - Correlation between ERI and Gallagher: r =", correlation_value, "\n")
 
 aruba_mean <- mean(results$ERI_Current[results$Territory == "Aruba"])
 cat("  - Aruba mean ERI:", round(aruba_mean, 3), "\n")
@@ -518,11 +672,11 @@ cat("  - Sint Maarten mean ERI:", round(sint_mean, 3), "\n")
 
 cat("\nAll outputs saved to:\n")
 cat("  - tables/ directory (CSV files)\n")
-cat("  - figures/ directory (PNG files)\n")
+cat("  - figures/ directory (PNG files - 3 visualizations)\n")
 
 cat("\n")
 print_separator()
-cat("END OF ANALYSIS\n")
+cat("END OF ANALYSIS - ITERATION 8\n")
 print_separator()
 
 # END OF SCRIPT
