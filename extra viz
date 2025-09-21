@@ -1,0 +1,263 @@
+# =============================================================================
+# ADDITIONAL VISUALIZATIONS FOR MAIN PAPER
+# Iteration 1: Fragmentation Zones with CI and Method Comparison by Territory
+# Author: Rendell Ernest de Kort
+# Date: January 2025
+# =============================================================================
+# 
+# Add this code to your main script after Figure 4
+# This creates Figures 5 and 6
+# =============================================================================
+
+# FIGURE 5: FRAGMENTATION ZONES AND DEMOCRATIC INCLUSION WITH CONFIDENCE INTERVALS
+# =============================================================================
+
+cat("\nGenerating Figure 5: Fragmentation Zones with Confidence Intervals...\n")
+
+# Prepare data with party-to-seat ratios
+fragmentation_data <- results %>%
+  mutate(
+    Party_Seat_Ratio = Num_Parties / Seats,
+    Territory_Color = Territory
+  )
+
+# Create zones for annotation
+zone_annotations <- data.frame(
+  xmin = c(0, 0.25, 0.40),
+  xmax = c(0.25, 0.40, 0.75),
+  ymin = rep(0.6, 3),
+  ymax = rep(1.01, 3),
+  fill = c("green", "orange", "red"),
+  alpha = c(0.1, 0.1, 0.1),
+  label = c("Low Fragmentation\n(High Inclusion)", 
+            "Critical Zone\n(Threshold Design Matters)", 
+            "High Fragmentation\n(Mathematical Constraints)"),
+  label_y = c(0.95, 0.95, 0.95),
+  label_x = c(0.125, 0.325, 0.50)
+)
+
+# Create the fragmentation zones plot with confidence intervals
+p_fragmentation_zones <- ggplot(fragmentation_data, aes(x = Party_Seat_Ratio, y = ERI_Current)) +
+  # Add zone shading
+  geom_rect(data = zone_annotations,
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill),
+            alpha = 0.15, inherit.aes = FALSE) +
+  # Add zone labels
+  geom_text(data = zone_annotations,
+            aes(x = label_x, y = label_y, label = label),
+            size = 3.5, fontface = "italic", color = "gray40", inherit.aes = FALSE) +
+  # Add smooth line with confidence interval
+  geom_smooth(method = "loess", span = 0.75, se = TRUE, 
+              color = "darkblue", fill = "lightblue", alpha = 0.3, size = 1.2) +
+  # Add vertical threshold lines
+  geom_vline(xintercept = 0.25, linetype = "dashed", color = "gray50", alpha = 0.7) +
+  geom_vline(xintercept = 0.40, linetype = "dashed", color = "gray50", alpha = 0.7) +
+  # Add points colored by territory
+  geom_point(aes(color = Territory_Color, size = Total_Votes/10000), alpha = 0.7) +
+  # Add horizontal line at perfect inclusion
+  geom_hline(yintercept = 1.0, linetype = "dotted", color = "darkgreen", alpha = 0.5) +
+  # Add mean ERI lines for each zone
+  geom_segment(x = 0, xend = 0.25, y = 0.928, yend = 0.928, 
+               color = "darkgreen", linetype = "solid", alpha = 0.5) +
+  geom_segment(x = 0.25, xend = 0.40, y = 0.856, yend = 0.856, 
+               color = "darkorange", linetype = "solid", alpha = 0.5) +
+  geom_segment(x = 0.40, xend = 0.75, y = 0.784, yend = 0.784, 
+               color = "darkred", linetype = "solid", alpha = 0.5) +
+  # Scales
+  scale_x_continuous(limits = c(0, 0.75), breaks = seq(0, 0.75, 0.1),
+                     labels = scales::percent) +
+  scale_y_continuous(limits = c(0.6, 1.01), breaks = seq(0.6, 1.0, 0.1),
+                     labels = scales::percent) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  scale_size_continuous(range = c(2, 5), guide = "none") +
+  scale_fill_identity() +
+  # Labels
+  labs(
+    title = "Fragmentation Zones and Democratic Inclusion",
+    subtitle = "Relationship between party-to-seat ratios and effective representation with 95% confidence interval",
+    x = "Party-to-Seat Ratio (Party Fragmentation)",
+    y = "Effective Representation Index (ERI)",
+    color = "Territory",
+    caption = "Note: Shaded area shows 95% confidence interval. Horizontal lines indicate mean ERI for each zone.\nVertical dashed lines at 0.25 and 0.40 mark critical thresholds. Point size reflects total votes."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "right",
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+
+print(p_fragmentation_zones)
+ggsave("figures/Figure5_Fragmentation_Zones_CI.png", p_fragmentation_zones, 
+       width = 12, height = 7, dpi = 300)
+
+# =============================================================================
+# FIGURE 6: METHOD COMPARISON OVER TIME BY TERRITORY (TILED LINE GRAPHS)
+# =============================================================================
+
+cat("\nGenerating Figure 6: Method Comparison Over Time by Territory...\n")
+
+# Reshape data for multiple methods
+methods_comparison <- results %>%
+  select(Territory, Year, ERI_Current, ERI_Sainte_Lague, ERI_75_50, Num_Parties) %>%
+  pivot_longer(cols = starts_with("ERI_"), 
+               names_to = "Method", 
+               values_to = "ERI") %>%
+  mutate(
+    Method = case_when(
+      Method == "ERI_Current" ~ "Current System",
+      Method == "ERI_Sainte_Lague" ~ "Sainte-Laguë",
+      Method == "ERI_75_50" ~ "75%/50% Graduated",
+      TRUE ~ Method
+    ),
+    Method = factor(Method, levels = c("Current System", "Sainte-Laguë", "75%/50% Graduated"))
+  )
+
+# Calculate mean ERI for each method/territory for annotation
+mean_eri_by_method <- methods_comparison %>%
+  group_by(Territory, Method) %>%
+  summarise(Mean_ERI = mean(ERI), .groups = 'drop')
+
+# Create faceted line plot
+p_methods_time <- ggplot(methods_comparison, aes(x = Year, y = ERI)) +
+  # Add horizontal line at 0.85 (threshold for good inclusion)
+  geom_hline(yintercept = 0.85, linetype = "dotted", color = "gray50", alpha = 0.5) +
+  # Add horizontal line at perfect inclusion
+  geom_hline(yintercept = 1.0, linetype = "dotted", color = "darkgreen", alpha = 0.3) +
+  # Add lines for each method
+  geom_line(aes(color = Method, linetype = Method), size = 1, alpha = 0.8) +
+  # Add points
+  geom_point(aes(color = Method, size = Num_Parties), alpha = 0.7) +
+  # Facet by territory
+  facet_wrap(~Territory, ncol = 3, scales = "free_x") +
+  # Add trend for current system
+  geom_smooth(data = filter(methods_comparison, Method == "Current System"),
+              method = "lm", se = FALSE, size = 0.5, alpha = 0.3,
+              linetype = "dashed", color = "gray40") +
+  # Scales
+  scale_y_continuous(limits = c(0.65, 1.02), breaks = seq(0.65, 1.0, 0.05),
+                     labels = scales::percent) +
+  scale_color_manual(values = c("Current System" = "#e41a1c",
+                                "Sainte-Laguë" = "#377eb8",
+                                "75%/50% Graduated" = "#4daf4a")) +
+  scale_linetype_manual(values = c("Current System" = "solid",
+                                   "Sainte-Laguë" = "dashed",
+                                   "75%/50% Graduated" = "dotdash")) +
+  scale_size_continuous(range = c(1, 4), guide = guide_legend(title = "Number of\nParties")) +
+  # Labels
+  labs(
+    title = "Electoral Method Performance Comparison Over Time",
+    subtitle = "ERI trends for current systems vs. alternative allocation methods by territory",
+    x = "Year",
+    y = "Effective Representation Index (ERI)",
+    color = "Allocation Method",
+    linetype = "Allocation Method",
+    caption = "Note: Point size indicates number of parties. Gray dashed line shows linear trend for current system.\nHorizontal dotted lines at 85% (good inclusion) and 100% (perfect inclusion)."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p_methods_time)
+ggsave("figures/Figure6_Methods_Comparison_Time.png", p_methods_time, 
+       width = 14, height = 8, dpi = 300)
+
+# =============================================================================
+# BONUS FIGURE 7: ZOOM IN ON CRITICAL ZONE (0.25-0.40 FRAGMENTATION)
+# =============================================================================
+
+cat("\nGenerating Bonus Figure 7: Critical Zone Analysis...\n")
+
+# Filter data for critical zone
+critical_zone_data <- fragmentation_data %>%
+  filter(Party_Seat_Ratio >= 0.25 & Party_Seat_Ratio <= 0.40)
+
+p_critical_zone <- ggplot(critical_zone_data, aes(x = Party_Seat_Ratio, y = ERI_Current)) +
+  # Background shading
+  annotate("rect", xmin = 0.25, xmax = 0.40, ymin = 0.7, ymax = 1.01,
+           fill = "orange", alpha = 0.1) +
+  # Add smooth line with wider confidence interval
+  geom_smooth(method = "loess", se = TRUE, level = 0.95,
+              color = "darkorange", fill = "orange", alpha = 0.2, size = 1.2) +
+  # Add points
+  geom_point(aes(color = Territory, size = Total_Votes/10000), alpha = 0.8) +
+  # Add text labels for specific elections
+  geom_text(aes(label = paste0("'", substr(as.character(Year), 3, 4))), 
+            size = 2.5, vjust = -1, hjust = 0.5, check_overlap = TRUE) +
+  # Reference lines
+  geom_hline(yintercept = 0.85, linetype = "dashed", color = "gray50", alpha = 0.5) +
+  geom_hline(yintercept = 0.90, linetype = "dashed", color = "gray50", alpha = 0.5) +
+  # Scales
+  scale_x_continuous(limits = c(0.25, 0.40), breaks = seq(0.25, 0.40, 0.025),
+                     labels = scales::percent) +
+  scale_y_continuous(limits = c(0.70, 1.0), breaks = seq(0.70, 1.0, 0.05),
+                     labels = scales::percent) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  scale_size_continuous(range = c(3, 6), guide = "none") +
+  # Labels
+  labs(
+    title = "Critical Fragmentation Zone Analysis (0.25-0.40 Party-to-Seat Ratio)",
+    subtitle = "Where threshold design matters most for democratic inclusion",
+    x = "Party-to-Seat Ratio",
+    y = "Effective Representation Index (ERI)",
+    color = "Territory",
+    caption = "Note: This zone shows highest variance in ERI outcomes. Threshold design is most consequential here.\nHorizontal lines at 85% and 90% indicate key inclusion thresholds."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, color = "gray40"),
+    plot.caption = element_text(size = 9, hjust = 0),
+    legend.position = "right",
+    panel.grid.minor = element_line(color = "gray95"),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+
+print(p_critical_zone)
+ggsave("figures/Figure7_Critical_Zone_Analysis.png", p_critical_zone, 
+       width = 10, height = 7, dpi = 300)
+
+# =============================================================================
+# SUMMARY OF NEW FIGURES
+# =============================================================================
+
+cat("\n")
+print_separator()
+cat("ADDITIONAL FIGURES GENERATED:\n")
+print_separator()
+cat("\nFigure 5: Fragmentation Zones with Confidence Intervals\n")
+cat("  - Shows relationship between party fragmentation and inclusion\n")
+cat("  - Includes 95% confidence interval from loess smoothing\n")
+cat("  - Highlights three critical zones with mean ERI levels\n")
+
+cat("\nFigure 6: Method Comparison Over Time by Territory\n")
+cat("  - Compares Current System, Sainte-Laguë, and 75%/50% Graduated\n")
+cat("  - Shows temporal trends for each territory\n")
+cat("  - Point size indicates party fragmentation level\n")
+
+cat("\nFigure 7 (Bonus): Critical Zone Deep Dive\n")
+cat("  - Focuses on 0.25-0.40 fragmentation range\n")
+cat("  - Shows where threshold design has maximum impact\n")
+cat("  - Includes year labels for specific elections\n")
+
+cat("\nAll figures saved to 'figures/' directory\n")
+print_separator()
