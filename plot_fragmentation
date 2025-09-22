@@ -1,0 +1,88 @@
+# COMPLETE CODE WITH GUARANTEED VISIBLE ZONES
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+
+# Create the dataset
+data <- data.frame(
+  Territory = c(rep("Aruba", 12), rep("Curaçao", 6), rep("Sint Maarten", 6)),
+  Year = c(1985, 1989, 1993, 1994, 1997, 2001, 2005, 2009, 2013, 2017, 2021, 2024,
+           2010, 2012, 2016, 2017, 2021, 2025,
+           2010, 2014, 2016, 2018, 2020, 2024),
+  Seats = c(rep(21, 12), rep(21, 6), rep(15, 6)),
+  ERI = c(1.000, 0.976, 0.953, 0.956, 0.912, 0.943, 0.891, 0.897, 0.956, 0.940, 0.897, 0.835,
+          0.959, 0.966, 0.937, 0.925, 0.885, 0.969,
+          0.991, 0.979, 0.880, 1.000, 1.000, 0.932),
+  Num_Parties = c(5, 7, 8, 4, 7, 7, 9, 8, 6, 8, 12, 11,
+                  10, 8, 13, 11, 15, 7,
+                  4, 6, 9, 5, 6, 8)
+)
+
+data$Party_Seat_Ratio <- data$Num_Parties / data$Seats
+data$YearLabel <- paste0("'", substr(as.character(data$Year), 3, 4))
+
+# Create the plot with SOLID BACKGROUND COLORS
+p_zones <- ggplot(data, aes(x = Party_Seat_Ratio, y = ERI)) +
+  # FIRST: Set white background
+  theme_minimal() +
+  
+  # SECOND: Add colored zones using annotate with SOLID colors
+  annotate("rect", xmin = 0.15, xmax = 0.25, ymin = 0.8, ymax = 1.02,
+           fill = "#90EE90", alpha = 0.4) +  # Light green
+  annotate("rect", xmin = 0.25, xmax = 0.40, ymin = 0.8, ymax = 1.02,
+           fill = "#FFFF99", alpha = 0.4) +  # Light yellow
+  annotate("rect", xmin = 0.40, xmax = 0.75, ymin = 0.8, ymax = 1.02,
+           fill = "#FFB6C1", alpha = 0.4) +  # Light pink/red
+  
+  # Add vertical threshold lines
+  geom_vline(xintercept = 0.25, linetype = "dashed", color = "black", size = 0.5) +
+  geom_vline(xintercept = 0.40, linetype = "dashed", color = "black", size = 0.5) +
+  
+  # Add trend line
+  geom_smooth(method = "loess", se = TRUE, color = "black", 
+              size = 1, alpha = 0.2, fill = "gray50") +
+  
+  # Add points
+  geom_point(aes(color = Territory), size = 4, alpha = 0.9) +
+  
+  # Add year labels
+  geom_text(aes(label = YearLabel), 
+            size = 2.5, vjust = -0.8, hjust = 0.5, 
+            color = "gray40") +
+  
+  # Add zone labels with backgrounds for visibility
+  annotate("label", x = 0.20, y = 0.83, 
+           label = "Low\nFragmentation\n(<0.25)\nMean: 0.978", 
+           size = 2.5, color = "darkgreen", fill = "white", alpha = 0.8) +
+  annotate("label", x = 0.325, y = 0.83, 
+           label = "Critical Zone\n(0.25-0.40)\n13 elections\nMean: 0.960", 
+           size = 2.5, color = "darkorange", fill = "white", alpha = 0.8) +
+  annotate("label", x = 0.55, y = 0.83, 
+           label = "High\nFragmentation\n(>0.40)\nMean: 0.905", 
+           size = 2.5, color = "darkred", fill = "white", alpha = 0.8) +
+  
+  # Scales and labels
+  scale_y_continuous(limits = c(0.8, 1.02), labels = scales::percent) +
+  scale_x_continuous(limits = c(0.15, 0.75), breaks = seq(0.2, 0.7, 0.1)) +
+  scale_color_manual(values = c("Aruba" = "#1f77b4", 
+                                "Curaçao" = "#2ca02c", 
+                                "Sint Maarten" = "#ff7f0e")) +
+  labs(
+    title = "Fragmentation Zones and Democratic Inclusion",
+    subtitle = "Green: Low fragmentation | Yellow: Critical zone | Pink: High fragmentation",
+    x = "Party-to-Seat Ratio",
+    y = "Effective Representation Index (ERI)",
+    color = "Territory"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+print(p_zones)
+
+# Save it
+ggsave("Figure1_Fragmentation_Zones_Fixed.png", p_zones, 
+       width = 10, height = 7, dpi = 300)
